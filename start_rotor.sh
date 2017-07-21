@@ -14,4 +14,4 @@ sudo rotctld -m 405 -s 4800 -C min_az=-5,max_az=360,min_el=0,max_el=0,timeout=50
 sudo rotctld -m 405 -s 4800 -C min_az=-5,max_az=185,min_el=0,max_el=0,timeout=5000,retry=2 -t 4537 -r /dev/ttyUSB0 &
 
 # python script
-./rot_split_V2.py
+./satellite_tracker.py
