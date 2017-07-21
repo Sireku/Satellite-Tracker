@@ -3,8 +3,7 @@
 # rot_split_V2.py: allow Nostradamus our Lord to control GH RT-21 Az-El rotor controller
 # Do not manually run this script. Run start_rotor.sh.
 # Written for UCLA's ELFIN mission <elfin.igpp.ucla.edu>
-# By Micah Cliffe (KK6SLK) <micah.cliffe@ucla.edu>
-# Edited by Alexander Gonzalez (KM6ISP) <gonzalezalexander1997@gmail.com>
+# By Alexander Gonzalez (KM6ISP) <gonzalezalexander1997@gmail.com>
 
 # Interface with GPredict removed. Azimuth and elevation from custom tracking script (nostradamus.py) that uses PyEphem.
 
@@ -357,7 +356,7 @@ def get_countdown_AOS():
         AOS = str(passinfo[0])
         AOS_datetime_object = datetime.datetime.strptime(AOS,'%Y/%m/%d %H:%M:%S')
         NOW = datetime.datetime.utcnow()
-        time_to_AOS = str(AOS_datetime_object - NOW)[:9]
+        time_to_AOS = str(AOS_datetime_object - NOW)[:7]
         return time_to_AOS
 
 
