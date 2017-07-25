@@ -3,7 +3,8 @@
 # rot_split_V2.py: allow Nostradamus our Lord to control GH RT-21 Az-El rotor controller
 # Do not manually run this script. Run start_rotor.sh.
 # Written for UCLA's ELFIN mission <elfin.igpp.ucla.edu>
-# By Alexander Gonzalez (KM6ISP) <gonzalezalexander1997@gmail.com>
+# By Micah Cliffe (KK6SLK) <micah.cliffe@ucla.edu>
+# Edited by Alexander Gonzalez (KM6ISP) <gonzalezalexander1997@gmail.com>
 
 # Interface with GPredict removed. Azimuth and elevation from custom tracking script (nostradamus.py) that uses PyEphem.
 
@@ -164,18 +165,13 @@ def main():
 #Choose satellite to track and command to send to rotor controller
     select_satellite()
     command_request()
-
-#Prints current station and satellite. Optional to set station through nostradamus function
-
-
-
-#TODO: point at rise azimuth of next pass  between passes
-# send command to point at rise azimuth 5 mins before rise time
+    global SATELLITE
+    global SATELLITE_SELECTED
 #TODO: function for doppler frequency. If sats in list not in range, do not set frequency in gqrx
 
-#Loop 1: IN_RANGE -> starts tracking
-#Loop 2: not IN_RANGE -> will print pos and keep checking for LOS.
-#When LOS established, loop 1 runs. When LOS lost, loop 2 runs.
+#Loop 2: IN_RANGE -> starts tracking
+#Loop 1: not IN_RANGE -> will print pos and keep checking for LOS.
+#When AOS established, loop 2 runs. When AOS lost, loop 1 runs.
 #RUN_FOREVER keeps the script switching between loop 1 and 2
 
     while RUN_FOREVER:
@@ -185,6 +181,8 @@ def main():
         print "\nSTATION: " + n.getStation()
         print "SATELLITES: " + str(n.getSatellites()) + "\n"
         #print satellite_list
+        SATELLITE_SELECTED = None
+        SATELLITE = satellite
 
 #Select satellite from list that is in range.
 #Pass if none in range. Defaults to select_satellite input until new satellite in range
@@ -197,16 +195,16 @@ def main():
             satellite_switcher(pos_list[i], satellite_list[i])
 
         if SATELLITE_SELECTED is True:
-            print "%s HAS BEEN SELECTED.\n"
-        elif SATELLITE_SELECTED is False:
+            print "%s HAS BEEN SELECTED.\n" % SATELLITE
+        else:
             print "All satellites in list out of range. \n"
 
 #Grab index of selected satellite. Used to pick corresponding frequency from list.
-        if satellite in satellite_list:
-            sat_index = satellite_list.index(satellite)
+        if SATELLITE in satellite_list:
+            sat_index = satellite_list.index(SATELLITE)
         FREQUENCY = frequency_list[sat_index]
 #Compute pos and put into rotorcmd
-        start_tracker(satellite)
+        start_tracker(SATELLITE)
 
 #Doppler shifted frequency tracked and set in GQRX via port
 # -vel shift right, +vel shift left
@@ -215,17 +213,24 @@ def main():
         r.set_frequency(doppler_corrected_freq)
 
 #Check if satellite is in LOS to determine loop entry
-        check_AOS(satellite, pos)
+        check_AOS(SATELLITE, pos)
+
+#Point to rise azimuth of upcoming satellite 5 mins before AOS
+        get_countdown_AOS(SATELLITE)
+        get_countdown_secs(SATELLITE)
+        if 240 <= sec_to_AOS <= 300:
+            set_rise_azimuth(SATELLITE)
 
         while IN_RANGE is False:
-            check_satellite(satellite, pos, doppler_corrected_freq, FREQUENCY)
+            for i in range(0, len(satellite_list)):
+                check_satellite(satellite_list[i], pos_list[i], doppler_corrected_freq, frequency_list[i])
             command_execute()
             new_command_request()
             new_command_execute(user_choice)
             break
 
         while IN_RANGE is True:
-            check_satellite(satellite, pos, doppler_corrected_freq, FREQUENCY)
+            check_satellite(SATELLITE, pos, doppler_corrected_freq, FREQUENCY)
             command_execute()
             new_command_request()
             new_command_execute(user_choice)
@@ -256,7 +261,7 @@ def command_execute():
         print "\nTracking not engaged."
 
 def get_position(az, el):
-    print "\nRequesting superlaser position... "
+    print "\nRequesting array position... "
     azCtrl = 'p' + ' ' + '0' + ' 0\n'
     az.send(azCtrl)
     az_response = az.get_response().splitlines()[0]
@@ -267,7 +272,7 @@ def get_position(az, el):
     print "Response: " + response
 
 def set_position(az, el, cmd):
-    print "\nAiming superlaser..."
+    print "\nAiming array..."
     cmd  = cmd.split(',')
     # cmd = [P, AZIMUTH, ELEVATION]
     azCtrl = cmd[0] + ' ' + cmd[1] + ' 0\n'
@@ -281,7 +286,7 @@ def set_position(az, el, cmd):
     print "EL: " + elCtrl
     az_resp = az.get_response()
     el_resp = el.get_response()
-    print "Checking superlaser..."
+    print "Checking array..."
     #print "AZ: " + az_resp
     #print "EL: " + el_resp
     if az_resp == el_resp and az_resp == "RPRT 0\n":
@@ -329,10 +334,11 @@ def select_frequency():
         frequency = 437400000 #Hz
     elif satellite == "TIGRISAT":
         frequency = 435000000 #Hz
+    elif satellite == "ESTCUBE 1":
+        frequency = 437505000 #Hz
     else:
         frequency =raw_input("Enter center frequency: ")
         frequency = int(frequency)
-
     if frequency not in frequency_list:
         frequency_list.append(frequency)
     else:
@@ -352,32 +358,66 @@ def get_time_now():
     utc_now = datetime.datetime.utcnow().strftime("%H:%M:%S (UTC)")
     return utc_now
 
-def get_countdown_AOS():
-        AOS = str(passinfo[0])
+def get_countdown_AOS(sat):
+        AOS = str(n.nextpass(sat)[0])
         AOS_datetime_object = datetime.datetime.strptime(AOS,'%Y/%m/%d %H:%M:%S')
         NOW = datetime.datetime.utcnow()
-        time_to_AOS = str(AOS_datetime_object - NOW)[:7]
+        time_to_AOS = str(AOS_datetime_object - NOW).split('.')[0]
         return time_to_AOS
 
+def get_countdown_LOS(sat):
+        LOS = str(n.nextpass(sat)[4])
+        LOS_datetime_object = datetime.datetime.strptime(LOS,'%Y/%m/%d %H:%M:%S')
+        NOW = datetime.datetime.utcnow()
+        time_to_LOS = str(LOS_datetime_object - NOW).split('.')[0]
+        return time_to_LOS
 
+def get_countdown_secs(sat):
+        global sec_to_AOS
+        check_pass = n.nextpass(sat)
+        AOS = str(check_pass[0])
+        AOS_datetime_object = datetime.datetime.strptime(AOS,'%Y/%m/%d %H:%M:%S')
+        NOW = datetime.datetime.utcnow()
+        sec_to_AOS = (AOS_datetime_object - NOW).total_seconds()
+        sec_to_AOS = str(sec_to_AOS).split('.')[0]
+        print sec_to_AOS
+        sec_to_AOS = float(sec_to_AOS)
+        return sec_to_AOS
 
-def check_satellite(sat, position, freq, centerfreq):
+def set_rise_azimuth(sat):
+        RISE_AZ = '%.2f' % degrees(passinfo[1])
+        RISE_EL = '0'
+        azCtrl = "P" + ' ' + RISE_AZ + ' 0\n'
+        elCtrl = "P" + ' ' + RISE_EL + ' 0\n'
+        az.send(azCtrl)
+        el.send(elCtrl)
+        az_resp = az.get_response()
+        el_resp = el.get_response()
+        if az_resp == el_resp and az_resp == "RPRT 0\n":
+            print "Now pointing at rise azimuth of %s\n" % sat
+            pass
+        else:
+            print("Something wrong? idk check", az_resp, el_resp)
+
+def check_satellite(sat, position, doppler_freq, center_freq):
         check =  position.split(',')
         check_az = '%.2f' % float(check[0])
         check_el = '%.2f' % float(check[1])
         check_vel = '%.3f' % vel
+        check_passinfo = n.nextpass(sat)
         print "Target: %s " % sat
         print "AZ: " + str(check_az)
         print "EL: " + str(check_el)
-        print "Range Rate: %s km/s" % str(check_vel)
+        #print "Range Rate: %s km/s" % str(check_vel)
         print "Current time: " + get_time_now()
-        print "Time to AOS:  " + get_countdown_AOS()
-        print "AOS: %s (UTC)" % passinfo[0]
-        print "LOS: %s (UTC)" % passinfo[4]
-        #print "Rise azimuth: %s" % ('%.2f' % degrees(passinfo[1]))
-        print "Frequency: %s Hz" % str(centerfreq)
-        #print "Doppler Shifted Frequency: %s Hz" % str(freq)
-        print "GQRX (doppler corrected) Frequency: " + r.get_frequency() + " Hz"
+        print "Time to AOS:  " + get_countdown_AOS(sat)
+        print "AOS: %s (UTC)" % check_passinfo[0]
+        print "Time to LOS:  " + get_countdown_LOS(sat)
+        print "LOS: %s (UTC)" % check_passinfo[4]
+        #print "Rise azimuth: %s" % ('%.2f' % degrees(check_passinfo[1]))
+        print "Frequency: %s Hz" % str(center_freq)
+        #print "Doppler Shifted Frequency: %s Hz" % str(doppler_freq)
+        print "GQRX (doppler corrected) Frequency: " + r.get_frequency() + " Hz\n"
 
 def check_AOS(sat, position):
         #checks if satellite is above horizon. If below horizon, az can be set but not el
@@ -405,15 +445,15 @@ def satellite_switcher(position, sat):
     check = position.split(',')
     check_az = float(check[0])
     check_el = float(check[1])
-    #check_vel = rangerate
+    check_pass = get_countdown_secs(sat)
     global SATELLITE_SELECTED
-    if check_el > 0:
-        satellite == sat
+    global SATELLITE
+    print check_el
+    if check_el > 0 or 0 <= check_pass <= 600:
+        SATELLITE = sat
         SATELLITE_SELECTED = True
-    else:
-        SATELLITE_SELECTED = False
-
-
+    elif SATELLITE_SELECTED is not True:
+        SATELLITE_SELECTED = None
 
 def start_tracker(sat):
     global pos
